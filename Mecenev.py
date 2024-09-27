@@ -5,6 +5,11 @@ import socket
 import pickle
 import time
 
+# БАГИ: 1) если нажать готов и убрать корабль, то другой игрок начнет с вами играть
+# а вы останетесь навсегда в меню расстановки кораблей 2) Если корабль потопить последним, его
+# эффект будет рисоваться поверх текста "вы проиграли" (только у проигравшего), - нужно стопить эффект!
+
+
 # Инициализация Pygame
 pygame.init()
 
@@ -50,7 +55,7 @@ class BattleshipGame:
 
         # Корабли игрока
         self.all_ships_placed = False  # Добавлено в __init__
-        self.ships_to_place = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]  # Размеры кораблей для размещения
+        self.ships_to_place = [3,1,1]  # Размеры кораблей для размещения [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]
         self.placed_ships = []  # Список размещенных кораблей
         self.selected_ship_size = None  # Текущий выбранный размер корабля для размещения
         self.ship_orientation = 'horizontal'
@@ -58,6 +63,7 @@ class BattleshipGame:
         self.ready = False
         self.enemy_ready = False
         self.both_ready = False  # Новая переменная для отслеживания готовности обоих игроков
+        self.effect_playing = False
 
         # Сетевое соединение
         self.conn = None
@@ -101,13 +107,14 @@ class BattleshipGame:
     def input_name(self):
         name = ''
         input_active = True
+        max_length = 20  # Maximum name length
         while input_active:
             self.clock.tick(60)
             self.screen.fill(WHITE)
             prompt = FONT.render('Введите ваше имя и нажмите Enter:', True, BLACK)
             name_text = FONT.render(name, True, BLACK)
-            self.screen.blit(prompt, (WIDTH//2 - prompt.get_width()//2, HEIGHT//2 - 30))
-            self.screen.blit(name_text, (WIDTH//2 - name_text.get_width()//2, HEIGHT//2))
+            self.screen.blit(prompt, (WIDTH // 2 - prompt.get_width() // 2, HEIGHT // 2 - 30))
+            self.screen.blit(name_text, (WIDTH // 2 - name_text.get_width() // 2, HEIGHT // 2))
             pygame.display.flip()
 
             for event in pygame.event.get():
@@ -120,7 +127,7 @@ class BattleshipGame:
                         break
                     elif event.key == pygame.K_BACKSPACE:
                         name = name[:-1]
-                    else:
+                    elif len(name) < max_length:  # Check the length of the name
                         name += event.unicode
         return name.strip()
 
@@ -274,7 +281,7 @@ class BattleshipGame:
         udp_socket.settimeout(2)
         udp_socket.bind(('', UDP_PORT))
 
-        game_timeout = 5  # Seconds until a game is considered unavailable
+        game_timeout = 1  # Seconds until a game is considered unavailable
         game_last_seen = {}  # Track last time each game was seen
 
         while self.scanning:
@@ -534,20 +541,26 @@ class BattleshipGame:
             rect = pygame.Rect(MARGIN + current_x * CELL_SIZE, MARGIN + current_y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
             pygame.draw.rect(self.screen, color, rect, 2)
 
-    def show_ship_destroy_effect(self, ship_positions):
-        for _ in range(3):  # Flash effect
-            for (x, y) in ship_positions:
-                rect = pygame.Rect(MARGIN + x * CELL_SIZE + 350, MARGIN + y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
-                pygame.draw.rect(self.screen, YELLOW, rect)  # Flash yellow to indicate destruction
-            pygame.display.flip()
-            pygame.time.delay(200)
+    def show_ship_destroy_effect(self, ship_positions, offset_x, offset_y, animate=True):
+        # Set a flag to indicate an effect is being played
+        self.effect_playing = True
 
-            # Clear effect
-            for (x, y) in ship_positions:
-                rect = pygame.Rect(MARGIN + x * CELL_SIZE + 350, MARGIN + y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
-                pygame.draw.rect(self.screen, RED, rect)
-            pygame.display.flip()
-            pygame.time.delay(200)
+        # Immediately mark the surrounding cells as gray
+        self.mark_adjacent_cells(ship_positions, self.own_grid if offset_x == MARGIN else self.enemy_grid)
+        pygame.display.flip()
+
+        if animate:
+            colors = [RED, YELLOW]  # Colors to alternate between
+            for _ in range(6):  # Increase the loop to make the effect last longer
+                for color in colors:
+                    for (x, y) in ship_positions:
+                        rect = pygame.Rect(offset_x + x * CELL_SIZE, offset_y + y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
+                        pygame.draw.rect(self.screen, color, rect)  # Draw with the current color
+                    pygame.display.flip()
+                    pygame.time.delay(300)  # Delay to create a flashing effect
+
+        # Reset the flag after the effect is complete
+        self.effect_playing = False
 
     def mark_adjacent_cells(self, ship_positions, grid):
         for (x, y) in ship_positions:
@@ -606,23 +619,26 @@ class BattleshipGame:
                         self.turn = False
 
     def draw(self):
+        if self.effect_playing:
+            return  # Skip drawing if an effect is being played
+
         self.screen.fill(WHITE)
-        # Рисуем свои корабли
+        # Draw own ships
         self.draw_grid(self.own_grid, MARGIN, MARGIN)
-        # Рисуем поле противника
+        # Draw enemy field
         self.draw_grid(self.enemy_grid, MARGIN + 350, MARGIN, hide_ships=True)
-        # Отображаем имена игроков
+        # Display player names
         own_name_text = FONT.render(f"Вы: {self.player_name}", True, BLACK)
         enemy_name_text = FONT.render(f"Противник: {self.enemy_name}", True, BLACK)
         self.screen.blit(own_name_text, (MARGIN, MARGIN - 30))
         self.screen.blit(enemy_name_text, (MARGIN + 350, MARGIN - 30))
-        # Отображаем, чей сейчас ход
+        # Display turn information
         if not self.game_over:
             text = "Ваш ход" if self.turn else "Ход противника"
         else:
             text = "Игра окончена"
         turn_text = FONT.render(text, True, BLACK)
-        self.screen.blit(turn_text, (WIDTH//2 - turn_text.get_width()//2, HEIGHT - 30))
+        self.screen.blit(turn_text, (WIDTH // 2 - turn_text.get_width() // 2, HEIGHT - 30))
         pygame.display.flip()
 
     def draw_grid(self, grid, offset_x, offset_y, hide_ships=False):
@@ -671,9 +687,12 @@ class BattleshipGame:
                 # Check if a ship is destroyed on your grid
                 destroyed_ship = self.check_ship_destroyed(self.own_grid, x, y)
                 if destroyed_ship:
-                    self.show_ship_destroy_effect(destroyed_ship)
-                    self.mark_adjacent_cells(destroyed_ship, self.own_grid)  # Mark adjacent cells on your own grid
+                    # Immediately mark adjacent cells and send the destroy message
+                    self.mark_adjacent_cells(destroyed_ship, self.own_grid)
                     self.send_data(('destroyed', destroyed_ship))  # Notify opponent
+
+                    # Show the destruction effect on your own grid
+                    self.show_ship_destroy_effect(destroyed_ship, MARGIN, MARGIN)
 
                 if self.check_defeat():
                     self.game_over = True
@@ -681,7 +700,8 @@ class BattleshipGame:
             else:
                 self.own_grid[y][x] = 3  # Мимо
                 self.send_data(('miss', x, y))
-            self.turn = True
+                self.turn = True  # Switch turn to the opponent
+
         elif data[0] == 'hit':
             x, y = data[1], data[2]
             self.enemy_grid[y][x] = 2  # Отмечаем попадание
@@ -689,23 +709,35 @@ class BattleshipGame:
             # Check if a ship is destroyed on the enemy's grid
             destroyed_ship = self.check_ship_destroyed(self.enemy_grid, x, y)
             if destroyed_ship:
-                self.show_ship_destroy_effect(destroyed_ship)
-                self.mark_adjacent_cells(destroyed_ship, self.enemy_grid)  # Mark adjacent cells on enemy's grid
+                # Immediately mark adjacent cells on enemy's grid
+                self.mark_adjacent_cells(destroyed_ship, self.enemy_grid)
+                # Show the destruction effect on the enemy's grid
+                self.show_ship_destroy_effect(destroyed_ship, MARGIN + 350, MARGIN)
+
+            # Allow player to continue their turn
+            self.turn = True
+
         elif data[0] == 'destroyed':
             # Handle when opponent notifies of ship destruction
             destroyed_ship = data[1]
-            self.show_ship_destroy_effect(destroyed_ship)
-            self.mark_adjacent_cells(destroyed_ship, self.enemy_grid)  # Mark adjacent cells on the enemy's grid
+            # Immediately mark adjacent cells on the enemy's grid and show the effect
+            self.mark_adjacent_cells(destroyed_ship, self.enemy_grid)
+            self.show_ship_destroy_effect(destroyed_ship, MARGIN + 350, MARGIN, animate=False)
+
         elif data[0] == 'miss':
             x, y = data[1], data[2]
             self.enemy_grid[y][x] = 3  # Отмечаем промах
+            self.turn = False  # Switch turn to the opponent
+
         elif data[0] == 'defeat':
             self.game_over = True
+
         elif data[0] == 'ready':
             self.enemy_ready = True
             # Проверяем, готовы ли оба игрока
             if self.ready and self.enemy_ready:
                 self.both_ready = True
+
         else:
             print(f"Неизвестный тип данных: {data[0]}")
 
