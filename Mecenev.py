@@ -50,7 +50,7 @@ class BattleshipGame:
 
         # Корабли игрока
         self.all_ships_placed = False  # Добавлено в __init__
-        self.ships_to_place = [5, 4, 3, 3, 2]  # Размеры кораблей для размещения
+        self.ships_to_place = [5, 4, 3, 3, 2, 1, 1]  # Размеры кораблей для размещения
         self.placed_ships = []  # Список размещенных кораблей
         self.selected_ship_size = None  # Текущий выбранный размер корабля для размещения
         self.ship_orientation = 'horizontal'
@@ -382,8 +382,11 @@ class BattleshipGame:
                     break
 
             # Проверяем, готовы ли оба игрока
-            if self.ready and self.enemy_ready:
-                self.both_ready = True
+            if self.ready:
+                threading.Thread(target=self.receive_data, daemon=True).start()
+                print("Started Threading Data")
+
+            if self.both_ready:
                 placing = False  # Выходим из цикла размещения
 
         # Переходим к игре, если оба игрока готовы
