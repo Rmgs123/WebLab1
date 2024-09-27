@@ -50,7 +50,7 @@ class BattleshipGame:
 
         # Корабли игрока
         self.all_ships_placed = False  # Добавлено в __init__
-        self.ships_to_place = [5, 4, 3, 3, 2, 1, 1]  # Размеры кораблей для размещения
+        self.ships_to_place = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]  # Размеры кораблей для размещения
         self.placed_ships = []  # Список размещенных кораблей
         self.selected_ship_size = None  # Текущий выбранный размер корабля для размещения
         self.ship_orientation = 'horizontal'
@@ -66,13 +66,17 @@ class BattleshipGame:
         self.main_menu()
 
     def main_menu(self):
-        # Окно ввода имени
-        self.player_name = self.input_name()
+        # Окно ввода имени (если имя еще не установлено)
         if not self.player_name:
-            self.running = False
-            return
+            self.player_name = self.input_name()
+            if not self.player_name:
+                self.running = False
+                return
 
         # Выбор режима игры
+        self.select_role()
+
+    def select_role(self):
         self.role = self.choose_role()
         if not self.role:
             self.running = False
@@ -153,16 +157,29 @@ class BattleshipGame:
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.bind(('', TCP_PORT))
         self.server_socket.listen(1)
+
+        self.broadcasting = True  # Добавляем флаг для управления потоками
+        self.accepting_connections = True
+
         threading.Thread(target=self.accept_connection, daemon=True).start()
         threading.Thread(target=self.broadcast_game, daemon=True).start()
 
         # Ожидание подключения клиента
         waiting = True
+        back_button = pygame.Rect(20, 20, 100, 40)  # Кнопка "Назад"
+
         while waiting:
             self.clock.tick(60)
             self.screen.fill(WHITE)
             prompt = FONT.render('Ожидание подключения игрока...', True, BLACK)
-            self.screen.blit(prompt, (WIDTH//2 - prompt.get_width()//2, HEIGHT//2))
+            self.screen.blit(prompt, (WIDTH // 2 - prompt.get_width() // 2, HEIGHT // 2))
+
+            # Отображение кнопки "Назад"
+            pygame.draw.rect(self.screen, GRAY, back_button)
+            back_text = SMALL_FONT.render('Назад', True, WHITE)
+            self.screen.blit(back_text, (
+            back_button.centerx - back_text.get_width() // 2, back_button.centery - back_text.get_height() // 2))
+
             pygame.display.flip()
 
             if self.connected:
@@ -173,31 +190,57 @@ class BattleshipGame:
                     self.running = False
                     waiting = False
                     return
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    x, y = event.pos
+                    if back_button.collidepoint(x, y):
+                        # Обработка нажатия кнопки "Назад"
+                        self.broadcasting = False  # Останавливаем рассылку
+                        self.accepting_connections = False  # Останавливаем принятие соединений
+
+                        if self.server_socket:
+                            self.server_socket.close()  # Закрываем серверный сокет
+
+                        self.connected = False  # Сбрасываем состояние подключения
+                        self.select_role()  # Возвращаемся к выбору роли
+                        return
 
     def accept_connection(self):
-        try:
-            self.conn, addr = self.server_socket.accept()
-            self.connected = True
-            # Получаем имя противника
-            data = self.conn.recv(1024)
-            self.enemy_name = data.decode()
-            # Отправляем свое имя
-            self.conn.sendall(self.player_name.encode())
-            print(f"Игрок {self.enemy_name} подключен.")
-        except Exception as e:
-            print(f"Ошибка при подключении: {e}")
-            self.running = False
+        while self.accepting_connections:
+            try:
+                self.conn, addr = self.server_socket.accept()
+                self.connected = True
+                # Получаем имя противника
+                data = self.conn.recv(1024)
+                self.enemy_name = data.decode()
+                # Отправляем свое имя
+                self.conn.sendall(self.player_name.encode())
+                print(f"Игрок {self.enemy_name} подключен.")
+                break  # Выходим из цикла после подключения
+            except Exception as e:
+                if not self.accepting_connections:
+                    break
+                print(f"Ошибка при подключении: {e}")
 
     def broadcast_game(self):
         udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         message = f"BattleshipGame:{self.player_name}"
-        while not self.connected and self.running:
-            udp_socket.sendto(message.encode(), (BROADCAST_IP, UDP_PORT))
-            time.sleep(1)
+        while not self.connected and self.broadcasting:
+            try:
+                udp_socket.sendto(message.encode(), (BROADCAST_IP, UDP_PORT))
+                time.sleep(1)
+            except Exception as e:
+                print(f"Ошибка при рассылке: {e}")
+                break
         udp_socket.close()
 
     def join_game(self):
+        # Очистка предыдущего состояния сети
+        if self.conn:
+            self.conn.close()
+        self.conn = None
+        self.connected = False
+
         # Сканируем сеть на наличие игр
         self.found_games = {}
         self.scanning = True
@@ -205,6 +248,9 @@ class BattleshipGame:
 
         selected_game = self.select_game()
         if not selected_game:
+            # Если ничего не выбрано или нажата кнопка "Назад", возвращаемся в выбор роли
+            self.scanning = False
+            self.select_role()
             return
 
         # Устанавливаем соединение с выбранной игрой
@@ -227,15 +273,30 @@ class BattleshipGame:
         udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         udp_socket.settimeout(2)
         udp_socket.bind(('', UDP_PORT))
+
+        game_timeout = 5  # Seconds until a game is considered unavailable
+        game_last_seen = {}  # Track last time each game was seen
+
         while self.scanning:
+            current_time = time.time()
+
             try:
                 data, addr = udp_socket.recvfrom(1024)
                 message = data.decode()
                 if message.startswith('BattleshipGame:'):
                     game_name = message.split(':')[1]
                     self.found_games[addr[0]] = {'name': game_name, 'ip': addr[0]}
+                    game_last_seen[addr[0]] = current_time  # Update last seen time
             except socket.timeout:
-                continue
+                pass
+
+            # Remove games that haven't broadcasted recently
+            to_remove = [ip for ip, last_seen in game_last_seen.items() if current_time - last_seen > game_timeout]
+            for ip in to_remove:
+                if ip in self.found_games:
+                    del self.found_games[ip]
+                del game_last_seen[ip]
+
         udp_socket.close()
 
     def select_game(self):
@@ -383,8 +444,9 @@ class BattleshipGame:
 
             # Проверяем, готовы ли оба игрока
             if self.ready:
-                threading.Thread(target=self.receive_data, daemon=True).start()
-                print("Started Threading Data")
+                if not hasattr(self, 'data_thread') or not self.data_thread.is_alive():
+                    self.data_thread = threading.Thread(target=self.receive_data, daemon=True)
+                    self.data_thread.start()
 
             if self.both_ready:
                 placing = False  # Выходим из цикла размещения
@@ -411,19 +473,39 @@ class BattleshipGame:
                 self.ship_buttons.append({'rect': ship_rect, 'size': ship_size})
 
     def can_place_ship(self, x, y, size, orientation):
-        if orientation == 'horizontal':
-            if x + size > 10:
+        # Check for placement out of bounds
+        if (orientation == 'horizontal' and x + size > 10) or (orientation == 'vertical' and y + size > 10):
+            return False
+
+        # Check for overlap and adjacent cells
+        for i in range(size):
+            current_x = x + i if orientation == 'horizontal' else x
+            current_y = y if orientation == 'horizontal' else y + i
+
+            # Check the cell itself
+            if self.own_grid[current_y][current_x] != 0:
                 return False
-            for i in range(size):
-                if self.own_grid[y][x + i] != 0:
-                    return False
-        else:
-            if y + size > 10:
-                return False
-            for i in range(size):
-                if self.own_grid[y + i][x] != 0:
-                    return False
+
+            # Check surrounding cells (including diagonals)
+            for adj_y in range(max(0, current_y - 1), min(10, current_y + 2)):
+                for adj_x in range(max(0, current_x - 1), min(10, current_x + 2)):
+                    if self.own_grid[adj_y][adj_x] != 0:
+                        return False
+
         return True
+
+    def find_blocking_ship(self, x, y, size, orientation):
+        blocking_positions = []
+        for i in range(size):
+            current_x = x + i if orientation == 'horizontal' else x
+            current_y = y if orientation == 'horizontal' else y + i
+
+            # Check surrounding cells for ships
+            for adj_y in range(max(0, current_y - 1), min(10, current_y + 2)):
+                for adj_x in range(max(0, current_x - 1), min(10, current_x + 2)):
+                    if self.own_grid[adj_y][adj_x] == 1 and (adj_x, adj_y) not in blocking_positions:
+                        blocking_positions.append((adj_x, adj_y))
+        return blocking_positions
 
     def place_ship(self, x, y, size, orientation):
         positions = []
@@ -438,14 +520,50 @@ class BattleshipGame:
         self.placed_ships.append({'positions': positions, 'size': size, 'orientation': orientation})
 
     def draw_ship_preview(self, x, y, size, orientation, color):
-        if orientation == 'horizontal':
-            for i in range(size):
-                rect = pygame.Rect(MARGIN + (x + i) * CELL_SIZE, MARGIN + y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
-                pygame.draw.rect(self.screen, color, rect, 2)
-        else:
-            for i in range(size):
-                rect = pygame.Rect(MARGIN + x * CELL_SIZE, MARGIN + (y + i) * CELL_SIZE, CELL_SIZE, CELL_SIZE)
-                pygame.draw.rect(self.screen, color, rect, 2)
+        blocking_positions = self.find_blocking_ship(x, y, size, orientation)
+
+        # Highlight the blocking ships in purple
+        for bx, by in blocking_positions:
+            rect = pygame.Rect(MARGIN + bx * CELL_SIZE, MARGIN + by * CELL_SIZE, CELL_SIZE, CELL_SIZE)
+            pygame.draw.rect(self.screen, (128, 0, 128), rect, 2)  # Purple color
+
+        # Highlight the ship being placed
+        for i in range(size):
+            current_x = x + i if orientation == 'horizontal' else x
+            current_y = y if orientation == 'horizontal' else y + i
+            rect = pygame.Rect(MARGIN + current_x * CELL_SIZE, MARGIN + current_y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
+            pygame.draw.rect(self.screen, color, rect, 2)
+
+    def show_ship_destroy_effect(self, ship_positions):
+        for _ in range(3):  # Flash effect
+            for (x, y) in ship_positions:
+                rect = pygame.Rect(MARGIN + x * CELL_SIZE + 350, MARGIN + y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
+                pygame.draw.rect(self.screen, YELLOW, rect)  # Flash yellow to indicate destruction
+            pygame.display.flip()
+            pygame.time.delay(200)
+
+            # Clear effect
+            for (x, y) in ship_positions:
+                rect = pygame.Rect(MARGIN + x * CELL_SIZE + 350, MARGIN + y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
+                pygame.draw.rect(self.screen, RED, rect)
+            pygame.display.flip()
+            pygame.time.delay(200)
+
+    def mark_adjacent_cells(self, ship_positions, grid):
+        for (x, y) in ship_positions:
+            for adj_y in range(max(0, y - 1), min(10, y + 2)):
+                for adj_x in range(max(0, x - 1), min(10, x + 2)):
+                    if grid[adj_y][adj_x] == 0:  # Only mark cells that haven't been shot at
+                        grid[adj_y][adj_x] = 3  # Mark as gray
+
+    def check_ship_destroyed(self, grid, x, y):
+        # Find the ship associated with the hit cell
+        for ship in self.placed_ships:
+            if (x, y) in ship['positions']:
+                # Check if all positions of the ship have been hit
+                if all(grid[pos_y][pos_x] == 2 for (pos_x, pos_y) in ship['positions']):
+                    return ship['positions']
+        return None
 
     def get_ship_at_position(self, x, y):
         for ship in self.placed_ships:
@@ -538,6 +656,10 @@ class BattleshipGame:
                 self.running = False
                 break
 
+        # Close the connection when the thread ends
+        if self.conn:
+            self.conn.close()
+
     def handle_network_data(self, data):
         if data[0] == 'move':
             x, y = data[1], data[2]
@@ -545,6 +667,14 @@ class BattleshipGame:
             if self.own_grid[y][x] == 1:
                 self.own_grid[y][x] = 2  # Попадание
                 self.send_data(('hit', x, y))
+
+                # Check if a ship is destroyed on your grid
+                destroyed_ship = self.check_ship_destroyed(self.own_grid, x, y)
+                if destroyed_ship:
+                    self.show_ship_destroy_effect(destroyed_ship)
+                    self.mark_adjacent_cells(destroyed_ship, self.own_grid)  # Mark adjacent cells on your own grid
+                    self.send_data(('destroyed', destroyed_ship))  # Notify opponent
+
                 if self.check_defeat():
                     self.game_over = True
                     self.send_data(('defeat',))
@@ -555,6 +685,17 @@ class BattleshipGame:
         elif data[0] == 'hit':
             x, y = data[1], data[2]
             self.enemy_grid[y][x] = 2  # Отмечаем попадание
+
+            # Check if a ship is destroyed on the enemy's grid
+            destroyed_ship = self.check_ship_destroyed(self.enemy_grid, x, y)
+            if destroyed_ship:
+                self.show_ship_destroy_effect(destroyed_ship)
+                self.mark_adjacent_cells(destroyed_ship, self.enemy_grid)  # Mark adjacent cells on enemy's grid
+        elif data[0] == 'destroyed':
+            # Handle when opponent notifies of ship destruction
+            destroyed_ship = data[1]
+            self.show_ship_destroy_effect(destroyed_ship)
+            self.mark_adjacent_cells(destroyed_ship, self.enemy_grid)  # Mark adjacent cells on the enemy's grid
         elif data[0] == 'miss':
             x, y = data[1], data[2]
             self.enemy_grid[y][x] = 3  # Отмечаем промах
