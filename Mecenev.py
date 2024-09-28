@@ -5,9 +5,6 @@ import socket
 import pickle
 import time
 
-# Главный баг сейчас - после завершения игры начинаются баги с подключением,
-# то игроки не могут начать игру, то приложение сворачивается
-
 # Инициализация Pygame
 pygame.init()
 
@@ -63,6 +60,7 @@ class BattleshipGame:
         self.both_ready = False  # Новая переменная для отслеживания готовности обоих игроков
         self.effect_playing = False
         self.stop_animations = False
+        self.safe_turn = False # Костыль для безопасного хода (без багов)
 
         # Сетевое соединение
         self.conn = None
@@ -106,7 +104,7 @@ class BattleshipGame:
     def input_name(self):
         name = ''
         input_active = True
-        max_length = 10  # Maximum name length
+        max_length = 16  # Maximum name length (чтобы влезало даже при @@@@@@)
         while input_active:
             self.clock.tick(60)
             self.screen.fill(WHITE)
@@ -159,12 +157,13 @@ class BattleshipGame:
         return None
 
     def start_host(self):
-        # Создаем сервер и начинаем рассылку UDP сообщений
+        # Create server and start broadcasting
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # Allow reuse of the socket
         self.server_socket.bind(('', TCP_PORT))
         self.server_socket.listen(1)
 
-        self.broadcasting = True  # Добавляем флаг для управления потоками
+        self.broadcasting = True
         self.accepting_connections = True
 
         threading.Thread(target=self.accept_connection, daemon=True).start()
@@ -241,37 +240,35 @@ class BattleshipGame:
         udp_socket.close()
 
     def join_game(self):
-        # Очистка предыдущего состояния сети
-        if self.conn:
-            self.conn.close()
-        self.conn = None
-        self.connected = False
-
-        # Сканируем сеть на наличие игр
+        # Clear previous game listings
         self.found_games = {}
         self.scanning = True
-        threading.Thread(target=self.scan_for_games, daemon=True).start()
+
+        # Start scanning for games in a separate thread
+        if not hasattr(self, 'scan_thread') or self.scan_thread is None or not self.scan_thread.is_alive():
+            self.scan_thread = threading.Thread(target=self.scan_for_games, daemon=True)
+            self.scan_thread.start()
 
         selected_game = self.select_game()
         if not selected_game:
-            # Если ничего не выбрано или нажата кнопка "Назад", возвращаемся в выбор роли
+            # If nothing is selected or "Back" is clicked, return to role selection
             self.scanning = False
             self.select_role()
             return
 
-        # Устанавливаем соединение с выбранной игрой
+        # Establish connection to selected game
         self.conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             self.conn.connect((selected_game['ip'], TCP_PORT))
             self.connected = True
-            # Отправляем свое имя
+            # Send player name
             self.conn.sendall(self.player_name.encode())
-            # Получаем имя противника
+            # Receive opponent's name
             data = self.conn.recv(1024)
             self.enemy_name = data.decode()
-            print(f"Подключено к игроку {self.enemy_name}")
+            print(f"Connected to player {self.enemy_name}")
         except Exception as e:
-            print(f"Не удалось подключиться к игре: {e}")
+            print(f"Failed to connect to the game: {e}")
             self.show_message('Не удалось подключиться к игре.')
 
     def scan_for_games(self):
@@ -322,7 +319,7 @@ class BattleshipGame:
             # Отображаем список найденных игр
             games = list(self.found_games.values())
             for idx, game in enumerate(games):
-                game_button = pygame.Rect(WIDTH//2 - 150, 100 + idx * 60, 300, 50)
+                game_button = pygame.Rect(WIDTH//2 - 250, 100 + idx * 60, 500, 50)
                 pygame.draw.rect(self.screen, BLUE, game_button)
                 game_text = FONT.render(f"{game['name']} ({game['ip']})", True, WHITE)
                 self.screen.blit(game_text, (game_button.centerx - game_text.get_width()//2, game_button.centery - game_text.get_height()//2))
@@ -465,7 +462,7 @@ class BattleshipGame:
 
             # Проверяем, готовы ли оба игрока
             if self.ready:
-                if not hasattr(self, 'data_thread') or not self.data_thread.is_alive():
+                if not hasattr(self, 'data_thread') or self.data_thread is None or not self.data_thread.is_alive():
                     self.data_thread = threading.Thread(target=self.receive_data, daemon=True)
                     self.data_thread.start()
 
@@ -570,8 +567,8 @@ class BattleshipGame:
         pygame.display.flip()
 
         if animate:
-            colors = [RED, YELLOW]  # Colors to alternate between
-            for _ in range(6):  # Increase the loop to make the effect last longer
+            colors = [BLUE, YELLOW]  # Colors to alternate between
+            for _ in range(4):  # Increase the loop to make the effect last longer
                 # Check if animations should be stopped (additional)
                 if self.stop_animations:
                     return
@@ -580,7 +577,7 @@ class BattleshipGame:
                         rect = pygame.Rect(offset_x + x * CELL_SIZE, offset_y + y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
                         pygame.draw.rect(self.screen, color, rect)  # Draw with the current color
                     pygame.display.flip()
-                    pygame.time.delay(300)  # Delay to create a flashing effect
+                    pygame.time.delay(200)  # Delay to create a flashing effect
 
         # Reset the flag after the effect is complete
         self.effect_playing = False
@@ -631,7 +628,7 @@ class BattleshipGame:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
-            if event.type == pygame.MOUSEBUTTONDOWN and self.turn and not self.game_over:
+            if event.type == pygame.MOUSEBUTTONDOWN and self.turn and self.safe_turn and not self.game_over:
                 x, y = pygame.mouse.get_pos()
                 grid_x = (x - MARGIN - 350) // CELL_SIZE
                 grid_y = (y - MARGIN) // CELL_SIZE
@@ -639,6 +636,7 @@ class BattleshipGame:
                     if self.enemy_grid[grid_y][grid_x] == 0:
                         # Отправляем координаты хода противнику
                         self.send_data(('move', grid_x, grid_y))
+                        self.safe_turn = False
                         self.turn = False
 
     def draw(self):
@@ -657,7 +655,12 @@ class BattleshipGame:
         self.screen.blit(enemy_name_text, (MARGIN + 350, MARGIN - 30))
         # Display turn information
         if not self.game_over:
-            text = "Ваш ход" if self.turn else "Ход противника"
+            if self.turn:
+                self.safe_turn = True  # Костыль для безопасного хода (без багов)
+                text = "Ваш ход"
+            else:
+                self.safe_turn = False
+                text = "..."
         else:
             text = "Игра окончена"
         turn_text = FONT.render(text, True, BLACK)
@@ -684,20 +687,29 @@ class BattleshipGame:
             self.running = False
 
     def receive_data(self):
-        while self.running:
+        while self.running and self.connected:
             try:
                 data = self.conn.recv(4096)
-                if data:
-                    packet = pickle.loads(data)
-                    self.handle_network_data(packet)
-            except Exception as e:
+                if not data:
+                    break  # Break the loop if connection is closed
+                packet = pickle.loads(data)
+                self.handle_network_data(packet)
+            except socket.error as e:
                 print(f"Ошибка при получении данных: {e}")
-                self.running = False
+                break
+            except Exception as e:
+                print(f"Unexpected error: {e}")
                 break
 
         # Close the connection when the thread ends
         if self.conn:
-            self.conn.close()
+            try:
+                self.conn.shutdown(socket.SHUT_RDWR)  # Shutdown the socket before closing
+                self.conn.close()
+            except Exception as e:
+                print(f"Error closing connection: {e}")
+            self.conn = None
+            self.connected = False
 
     def handle_network_data(self, data):
         if data[0] == 'move':
@@ -735,7 +747,7 @@ class BattleshipGame:
                 # Immediately mark adjacent cells on enemy's grid
                 self.mark_adjacent_cells(destroyed_ship, self.enemy_grid)
                 # Show the destruction effect on the enemy's grid
-                self.show_ship_destroy_effect(destroyed_ship, MARGIN + 350, MARGIN)
+                # self.show_ship_destroy_effect(destroyed_ship, MARGIN + 350, MARGIN) - в комментарии, потому что нам не нужна лагающая анимация.
 
             # Allow player to continue their turn
             self.turn = True
@@ -745,7 +757,7 @@ class BattleshipGame:
             destroyed_ship = data[1]
             # Immediately mark adjacent cells on the enemy's grid and show the effect
             self.mark_adjacent_cells(destroyed_ship, self.enemy_grid)
-            self.show_ship_destroy_effect(destroyed_ship, MARGIN + 350, MARGIN, animate=False)
+            # self.show_ship_destroy_effect(destroyed_ship, MARGIN + 350, MARGIN, animate=False) - в комментарии, потому что нам не нужна лагающая анимация.
 
         elif data[0] == 'miss':
             x, y = data[1], data[2]
@@ -783,31 +795,47 @@ class BattleshipGame:
         pygame.display.flip()
 
         # Ждем несколько секунд и закрываем игру
-        pygame.time.delay(5000)
+        pygame.time.delay(20)
+        self.screen.fill(WHITE) # Прекращаем все оставшиеся эффекты еще одной заливкой белого цвета
+        self.screen.blit(game_over_text, (WIDTH // 2 - game_over_text.get_width() // 2, HEIGHT // 2))
+        pygame.display.flip()
+        pygame.time.delay(4000)
         self.reset_game()
 
     def reset_game(self):
         # Reset player states
-        self.own_grid = [[0] * 10 for _ in range(10)]  # Reset player's field
-        self.enemy_grid = [[0] * 10 for _ in range(10)]  # Reset opponent's field
+        self.own_grid = [[0] * 10 for _ in range(10)]
+        self.enemy_grid = [[0] * 10 for _ in range(10)]
         self.all_ships_placed = False
-        self.ships_to_place = [3,1,1] # Размеры кораблей для размещения; default - [4, 3, 3, 2, 2, 2, 1, 1, 1, 1] - Вернуть!!
+        self.ships_to_place = [3, 1, 1] # Заменить позже!
         self.placed_ships = []
         self.selected_ship_size = None
         self.ship_orientation = 'horizontal'
         self.place_ships_phase = True
+        self.enemy_name = ''
         self.ready = False
         self.enemy_ready = False
         self.both_ready = False
         self.effect_playing = False
         self.stop_animations = False
+        self.game_over = False
+        self.safe_turn = False  # Костыль для безопасного хода (без багов)
 
         # Reset network-related states
-        self.conn = None
-        self.connected = False
-        self.role = None  # Clear the role to allow for a new selection
+        self.scanning = False
+        self.broadcasting = False
+        self.accepting_connections = False
 
-        # go back to the main menu
+        self.connected = False
+        self.server_socket = None
+
+        self.data_thread = None  # Reset thread reference
+        self.scan_thread = None  # Reset thread reference
+
+        # Clear role to allow for a new selection
+        self.role = None
+
+        # Return to the main menu
         self.main_menu()
 
 if __name__ == "__main__":
