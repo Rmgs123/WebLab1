@@ -5,10 +5,8 @@ import socket
 import pickle
 import time
 
-# БАГИ: 1) если нажать готов и убрать корабль, то другой игрок начнет с вами играть
-# а вы останетесь навсегда в меню расстановки кораблей 2) Если корабль потопить последним, его
-# эффект будет рисоваться поверх текста "вы проиграли" (только у проигравшего), - нужно стопить эффект!
-
+# Главный баг сейчас - после завершения игры начинаются баги с подключением,
+# то игроки не могут начать игру, то приложение сворачивается
 
 # Инициализация Pygame
 pygame.init()
@@ -17,8 +15,8 @@ pygame.init()
 WIDTH, HEIGHT = 900, 600  # Увеличена ширина для отображения списка кораблей
 CELL_SIZE = 30
 MARGIN = 50
-FONT = pygame.font.SysFont('arial', 20)
-SMALL_FONT = pygame.font.SysFont('arial', 16)
+FONT = pygame.font.SysFont('arial', 24)
+SMALL_FONT = pygame.font.SysFont('arial', 20)
 
 # Цвета
 WHITE = (255, 255, 255)
@@ -55,7 +53,7 @@ class BattleshipGame:
 
         # Корабли игрока
         self.all_ships_placed = False  # Добавлено в __init__
-        self.ships_to_place = [3,1,1]  # Размеры кораблей для размещения [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]
+        self.ships_to_place = [3,1,1] # Размеры кораблей для размещения; default - [4, 3, 3, 2, 2, 2, 1, 1, 1, 1] - Вернуть!!
         self.placed_ships = []  # Список размещенных кораблей
         self.selected_ship_size = None  # Текущий выбранный размер корабля для размещения
         self.ship_orientation = 'horizontal'
@@ -64,6 +62,7 @@ class BattleshipGame:
         self.enemy_ready = False
         self.both_ready = False  # Новая переменная для отслеживания готовности обоих игроков
         self.effect_playing = False
+        self.stop_animations = False
 
         # Сетевое соединение
         self.conn = None
@@ -107,13 +106,13 @@ class BattleshipGame:
     def input_name(self):
         name = ''
         input_active = True
-        max_length = 20  # Maximum name length
+        max_length = 10  # Maximum name length
         while input_active:
             self.clock.tick(60)
             self.screen.fill(WHITE)
             prompt = FONT.render('Введите ваше имя и нажмите Enter:', True, BLACK)
             name_text = FONT.render(name, True, BLACK)
-            self.screen.blit(prompt, (WIDTH // 2 - prompt.get_width() // 2, HEIGHT // 2 - 30))
+            self.screen.blit(prompt, (WIDTH // 2 - prompt.get_width() // 2, HEIGHT // 2 - 50))
             self.screen.blit(name_text, (WIDTH // 2 - name_text.get_width() // 2, HEIGHT // 2))
             pygame.display.flip()
 
@@ -137,8 +136,8 @@ class BattleshipGame:
             self.clock.tick(60)
             self.screen.fill(WHITE)
             prompt = FONT.render('Выберите режим игры:', True, BLACK)
-            host_button = pygame.Rect(WIDTH//2 - 100, HEIGHT//2 - 30, 200, 50)
-            client_button = pygame.Rect(WIDTH//2 - 100, HEIGHT//2 + 30, 200, 50)
+            host_button = pygame.Rect(WIDTH//2 - 100, HEIGHT//2 - 40, 200, 50)
+            client_button = pygame.Rect(WIDTH//2 - 100, HEIGHT//2 + 20, 200, 50)
             pygame.draw.rect(self.screen, BLUE, host_button)
             pygame.draw.rect(self.screen, GREEN, client_button)
             host_text = FONT.render('Создать игру', True, WHITE)
@@ -173,13 +172,13 @@ class BattleshipGame:
 
         # Ожидание подключения клиента
         waiting = True
-        back_button = pygame.Rect(20, 20, 100, 40)  # Кнопка "Назад"
+        back_button = pygame.Rect(WIDTH//2 - 50, HEIGHT//2 + 220, 100, 40)  # Кнопка "Назад"
 
         while waiting:
             self.clock.tick(60)
             self.screen.fill(WHITE)
             prompt = FONT.render('Ожидание подключения игрока...', True, BLACK)
-            self.screen.blit(prompt, (WIDTH // 2 - prompt.get_width() // 2, HEIGHT // 2))
+            self.screen.blit(prompt, (WIDTH // 2 - prompt.get_width() // 2, HEIGHT // 2 - 40))
 
             # Отображение кнопки "Назад"
             pygame.draw.rect(self.screen, GRAY, back_button)
@@ -308,7 +307,7 @@ class BattleshipGame:
 
     def select_game(self):
         selected = None
-        back_button = pygame.Rect(20, 20, 100, 40)
+        back_button = pygame.Rect(WIDTH//2 - 50, HEIGHT//2 + 220, 100, 40) # Кнопка "Назад"
         while selected is None and self.running:
             self.clock.tick(60)
             self.screen.fill(WHITE)
@@ -376,19 +375,34 @@ class BattleshipGame:
             self.draw_grid(self.own_grid, MARGIN, MARGIN)
             self.draw_ship_selection()
             prompt = FONT.render('Разместите свои корабли', True, BLACK)
-            self.screen.blit(prompt, (WIDTH // 2 - prompt.get_width() // 2, 20))
+            self.screen.blit(prompt, (WIDTH // 2 - 370, 10))
+
+            prompt = FONT.render('Список кораблей:', True, BLACK)
+            self.screen.blit(prompt, (WIDTH // 2 + 75, 10))
 
             # Добавляем инструкцию по удалению кораблей
-            instruction_text = SMALL_FONT.render('Удалить корабль: наведите на него и нажмите Delete', True, BLACK)
-            self.screen.blit(instruction_text, (MARGIN, HEIGHT - 80))
+            instruction_text1 = SMALL_FONT.render('Подсказки:', True, BLACK)
+            self.screen.blit(instruction_text1, (MARGIN, HEIGHT - 200))
 
-            # Кнопка "Готово"
+            instruction_text2 = SMALL_FONT.render('1) Чтобы повернуть корабль - нажмите R', True,
+                                                  BLACK)
+            self.screen.blit(instruction_text2, (MARGIN, HEIGHT - 175))
+
+            instruction_text3 = SMALL_FONT.render('2) Чтобы удалить корабль - наведите на него и нажмите Delete', True, BLACK)
+            self.screen.blit(instruction_text3, (MARGIN, HEIGHT - 150))
+
+            instruction_text4 = SMALL_FONT.render('3) После нажатия кнопки \'готово\', вы уже не сможете изменить расстановку ', True, BLACK)
+            self.screen.blit(instruction_text4, (MARGIN, HEIGHT - 125))
+
+            # Кнопка "Готово" - Вынес чтобы избежать бага
             ready_button = pygame.Rect(WIDTH - 150, HEIGHT - 60, 100, 40)
-            ready_color = GREEN if self.all_ships_placed else GRAY
-            pygame.draw.rect(self.screen, ready_color, ready_button)
-            ready_text = SMALL_FONT.render('Готово', True, WHITE)
-            self.screen.blit(ready_text, (
-            ready_button.centerx - ready_text.get_width() // 2, ready_button.centery - ready_text.get_height() // 2))
+
+            if not self.ready:
+                ready_color = GREEN if self.all_ships_placed else GRAY
+                pygame.draw.rect(self.screen, ready_color, ready_button)
+                ready_text = SMALL_FONT.render('Готово', True, WHITE)
+                self.screen.blit(ready_text, (
+                ready_button.centerx - ready_text.get_width() // 2, ready_button.centery - ready_text.get_height() // 2))
 
             # Отображаем предварительный просмотр корабля
             mouse_pos = pygame.mouse.get_pos()
@@ -408,7 +422,7 @@ class BattleshipGame:
             # Если мы нажали "Готово" и ждём противника, отображаем сообщение
             if self.ready and not self.both_ready:
                 waiting_text = FONT.render('Ожидание готовности противника...', True, BLACK)
-                self.screen.blit(waiting_text, (WIDTH // 2 - waiting_text.get_width() // 2, HEIGHT // 2))
+                self.screen.blit(waiting_text, (WIDTH // 2 + 5, HEIGHT // 2 - 120))
 
             pygame.display.flip()
 
@@ -417,7 +431,7 @@ class BattleshipGame:
                     self.running = False
                     placing = False
                     return
-                if event.type == pygame.KEYDOWN:
+                if event.type == pygame.KEYDOWN and not self.ready:  # Add condition to disable deletion:
                     if event.key == pygame.K_r:
                         self.ship_orientation = 'vertical' if self.ship_orientation == 'horizontal' else 'horizontal'
                     if event.key == pygame.K_DELETE and ship_under_cursor:
@@ -468,15 +482,17 @@ class BattleshipGame:
     def draw_ship_selection(self):
         # Отображаем доступные корабли для размещения
         self.ship_buttons = []
-        start_x = WIDTH - 200
+        selection_colors = [(139, 0, 0), (255, 69, 0), (255, 215, 0), (0, 100, 0), (0, 139, 139)]
+        start_x = WIDTH - 370
         start_y = MARGIN
         for idx, ship_size in enumerate(sorted(set(self.ships_to_place), reverse=True)):
             count = self.ships_to_place.count(ship_size)
             if count > 0:
                 ship_rect = pygame.Rect(start_x, start_y + idx * 60, 150, 50)
-                pygame.draw.rect(self.screen, BLUE, ship_rect)
+                pygame.draw.rect(self.screen, selection_colors[(idx % len(selection_colors))], ship_rect)
                 ship_text = SMALL_FONT.render(f'Корабль {ship_size} ({count})', True, WHITE)
-                self.screen.blit(ship_text, (ship_rect.centerx - ship_text.get_width()//2, ship_rect.centery - ship_text.get_height()//2))
+                self.screen.blit(ship_text, (
+                ship_rect.centerx - ship_text.get_width() // 2, ship_rect.centery - ship_text.get_height() // 2))
                 self.ship_buttons.append({'rect': ship_rect, 'size': ship_size})
 
     def can_place_ship(self, x, y, size, orientation):
@@ -542,6 +558,10 @@ class BattleshipGame:
             pygame.draw.rect(self.screen, color, rect, 2)
 
     def show_ship_destroy_effect(self, ship_positions, offset_x, offset_y, animate=True):
+        # Check if animations should be stopped
+        if self.stop_animations:
+            return
+
         # Set a flag to indicate an effect is being played
         self.effect_playing = True
 
@@ -552,6 +572,9 @@ class BattleshipGame:
         if animate:
             colors = [RED, YELLOW]  # Colors to alternate between
             for _ in range(6):  # Increase the loop to make the effect last longer
+                # Check if animations should be stopped (additional)
+                if self.stop_animations:
+                    return
                 for color in colors:
                     for (x, y) in ship_positions:
                         rect = pygame.Rect(offset_x + x * CELL_SIZE, offset_y + y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
@@ -638,7 +661,7 @@ class BattleshipGame:
         else:
             text = "Игра окончена"
         turn_text = FONT.render(text, True, BLACK)
-        self.screen.blit(turn_text, (WIDTH // 2 - turn_text.get_width() // 2, HEIGHT - 30))
+        self.screen.blit(turn_text, (WIDTH // 2 - turn_text.get_width() // 2, HEIGHT - 40))
         pygame.display.flip()
 
     def draw_grid(self, grid, offset_x, offset_y, hide_ships=False):
@@ -730,6 +753,7 @@ class BattleshipGame:
             self.turn = False  # Switch turn to the opponent
 
         elif data[0] == 'defeat':
+            self.stop_animations = True  # Stop all animations
             self.game_over = True
 
         elif data[0] == 'ready':
@@ -748,6 +772,7 @@ class BattleshipGame:
         return True
 
     def show_game_over(self):
+        self.stop_animations = True  # Stop all ongoing animations
         self.screen.fill(WHITE)
         if self.check_defeat():
             text = "Вы проиграли!"
@@ -759,7 +784,31 @@ class BattleshipGame:
 
         # Ждем несколько секунд и закрываем игру
         pygame.time.delay(5000)
-        self.running = False
+        self.reset_game()
+
+    def reset_game(self):
+        # Reset player states
+        self.own_grid = [[0] * 10 for _ in range(10)]  # Reset player's field
+        self.enemy_grid = [[0] * 10 for _ in range(10)]  # Reset opponent's field
+        self.all_ships_placed = False
+        self.ships_to_place = [3,1,1] # Размеры кораблей для размещения; default - [4, 3, 3, 2, 2, 2, 1, 1, 1, 1] - Вернуть!!
+        self.placed_ships = []
+        self.selected_ship_size = None
+        self.ship_orientation = 'horizontal'
+        self.place_ships_phase = True
+        self.ready = False
+        self.enemy_ready = False
+        self.both_ready = False
+        self.effect_playing = False
+        self.stop_animations = False
+
+        # Reset network-related states
+        self.conn = None
+        self.connected = False
+        self.role = None  # Clear the role to allow for a new selection
+
+        # go back to the main menu
+        self.main_menu()
 
 if __name__ == "__main__":
     BattleshipGame()
