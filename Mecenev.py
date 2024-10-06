@@ -50,13 +50,13 @@ class BattleshipGame:
         # Игровые поля
         self.own_grid = [[0] * 10 for _ in range(10)]  # Ваше поле
         self.enemy_grid = [[0] * 10 for _ in range(10)]  # Поле противника (известная вам информация)
-        self.fire = ['apple.jpg']
+        self.fire = ['fire.png']
         # Корабли игрока
         self.ships = ['Pi',
-                      'apple.jpg',  # Текстуры одиночного корабля
-                      'apple.jpg',  # Текстуры начала корабля
-                      'apple.jpg',  # Текстуры середины корабля
-                      'apple.jpg']  # Текстуры конца корабля
+                      'solo.png',  # Текстуры одиночного корабля
+                      'front.png',  # Текстуры начала корабля
+                      'middle.png',  # Текстуры середины корабля
+                      'back.png']  # Текстуры конца корабля
         self.index_ships = [[1],
                             [2],
                             [3],
@@ -64,8 +64,7 @@ class BattleshipGame:
 
         self.index_defeat = 100  # Значение, превышение которого означает поподание по кораблю
         self.all_ships_placed = False  # Добавлено в __init__
-        self.ships_to_place = [3, 1,
-                               1]  # Размеры кораблей для размещения; default - [4, 3, 3, 2, 2, 2, 1, 1, 1, 1] - Вернуть!!
+        self.ships_to_place = [4, 3, 2, 1,]  # Размеры кораблей для размещения; default - [4, 3, 3, 2, 2, 2, 1, 1, 1, 1] - Вернуть!!
         self.placed_ships = []  # Список размещенных кораблей
         self.selected_ship_size = None  # Текущий выбранный размер корабля для размещения
         self.ship_orientation = 'horizontal'
@@ -779,7 +778,7 @@ class BattleshipGame:
         image = pygame.transform.scale(image, (CELL_SIZE, CELL_SIZE))
 
         if value < 0:
-            image = pygame.transform.rotate(image, 90)
+            image = pygame.transform.rotate(image, 270)
 
         self.screen.blit(image, (offset_x, offset_y))
 
@@ -958,7 +957,7 @@ class BattleshipGame:
         self.own_grid = [[0] * 10 for _ in range(10)]
         self.enemy_grid = [[0] * 10 for _ in range(10)]
         self.all_ships_placed = False
-        self.ships_to_place = [3, 1, 1]  # Заменить позже!
+        self.ships_to_place = [4, 3, 2, 1,]  # Размеры кораблей для размещения; default - [4, 3, 3, 2, 2, 2, 1, 1, 1, 1] - Вернуть!!
         self.placed_ships = []
         self.selected_ship_size = None
         self.ship_orientation = 'horizontal'
