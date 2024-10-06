@@ -1,3 +1,5 @@
+import random
+
 import pygame
 import sys
 import threading
@@ -48,8 +50,19 @@ class BattleshipGame:
         # Игровые поля
         self.own_grid = [[0] * 10 for _ in range(10)]  # Ваше поле
         self.enemy_grid = [[0] * 10 for _ in range(10)]  # Поле противника (известная вам информация)
-
+        self.fire = ['apple.jpg']
         # Корабли игрока
+        self.ships = ['Pi',
+                      'apple.jpg',  # Текстуры одиночного корабля
+                      'apple.jpg',  # Текстуры начала корабля
+                      'apple.jpg',  # Текстуры середины корабля
+                      'apple.jpg']  # Текстуры конца корабля
+        self.index_ships = [[1],
+                            [2],
+                            [3],
+                            [4]]
+
+        self.index_defeat = 100  # Значение, превышение которого означает поподание по кораблю
         self.all_ships_placed = False  # Добавлено в __init__
         self.ships_to_place = [3, 1,
                                1]  # Размеры кораблей для размещения; default - [4, 3, 3, 2, 2, 2, 1, 1, 1, 1] - Вернуть!!
@@ -393,7 +406,7 @@ class BattleshipGame:
             self.draw_grid(self.own_grid, MARGIN, MARGIN)
             self.draw_ship_selection()
             prompt = FONT.render('Разместите свои корабли', True, BLACK)
-            self.screen.blit(prompt, (WIDTH // 2 - 370, 10))
+            self.screen.blit(prompt, (WIDTH // 2 - 400, 10))
 
             prompt = FONT.render('Список кораблей:', True, BLACK)
             self.screen.blit(prompt, (WIDTH // 2 + 75, 10))
@@ -489,6 +502,8 @@ class BattleshipGame:
                 if not hasattr(self, 'data_thread') or self.data_thread is None or not self.data_thread.is_alive():
                     self.data_thread = threading.Thread(target=self.receive_data, daemon=True)
                     self.data_thread.start()
+                if self.enemy_ready:
+                    self.both_ready = True
 
             if self.both_ready:
                 placing = False  # Выходим из цикла размещения
@@ -556,11 +571,29 @@ class BattleshipGame:
         positions = []
         if orientation == 'horizontal':
             for i in range(size):
-                self.own_grid[y][x + i] = 1
+                if i == 0:
+                    self.own_grid[y][x + i] = self.index_ships[1][random.randint(0, len(self.index_ships[1]) - 1)]
+
+                    if size == 1:
+                        self.own_grid[y][x + i] = self.index_ships[0][random.randint(0, len(self.index_ships[1]) - 1)]
+                elif i == size - 1:
+                    self.own_grid[y][x + i] = self.index_ships[3][random.randint(0, len(self.index_ships[1]) - 1)]
+                else:
+                    self.own_grid[y][x + i] = self.index_ships[2][random.randint(0, len(self.index_ships[1]) - 1)]
                 positions.append((x + i, y))
         else:
             for i in range(size):
-                self.own_grid[y + i][x] = 1
+                if i == 0:
+                    self.own_grid[y + i][x] = self.index_ships[1][random.randint(0, len(self.index_ships[1]) - 1)]
+
+                    if size == 1:
+                        self.own_grid[y + i][x] = self.index_ships[0][random.randint(0, len(self.index_ships[1]) - 1)]
+                elif i == size - 1:
+                    self.own_grid[y + i][x] = self.index_ships[3][random.randint(0, len(self.index_ships[1]) - 1)]
+                else:
+                    self.own_grid[y + i][x] = self.index_ships[2][random.randint(0, len(self.index_ships[1]) - 1)]
+
+                self.own_grid[y + i][x] = -1 * self.own_grid[y + i][x]
                 positions.append((x, y + i))
         self.placed_ships.append({'positions': positions, 'size': size, 'orientation': orientation})
 
@@ -588,7 +621,8 @@ class BattleshipGame:
         self.effect_playing = True
 
         # Immediately mark the surrounding cells as gray
-        self.mark_adjacent_cells(ship_positions, self.own_grid if offset_x == MARGIN else self.enemy_grid)
+        self.mark_adjacent_cells(ship_positions, self.own_grid if offset_x == MARGIN else self.enemy_grid,
+                                 True if offset_x == MARGIN else False)
         pygame.display.flip()
 
         if animate:
@@ -601,18 +635,23 @@ class BattleshipGame:
                     for (x, y) in ship_positions:
                         rect = pygame.Rect(offset_x + x * CELL_SIZE, offset_y + y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
                         pygame.draw.rect(self.screen, color, rect)  # Draw with the current color
+
                     pygame.display.flip()
                     pygame.time.delay(200)  # Delay to create a flashing effect
 
         # Reset the flag after the effect is complete
         self.effect_playing = False
 
-    def mark_adjacent_cells(self, ship_positions, grid):
+    def mark_adjacent_cells(self, ship_positions, grid, flag_own=False):
         for (x, y) in ship_positions:
             for adj_y in range(max(0, y - 1), min(10, y + 2)):
                 for adj_x in range(max(0, x - 1), min(10, x + 2)):
                     if grid[adj_y][adj_x] == 0:  # Only mark cells that haven't been shot at
                         grid[adj_y][adj_x] = 3  # Mark as gray
+
+                        if flag_own:
+                            print(1)
+                            grid[adj_y][adj_x] = len(self.ships) + self.index_defeat + 1
 
     def check_ship_destroyed(self, grid, x, y):
         # Find the ship associated with the hit cell
@@ -709,14 +748,46 @@ class BattleshipGame:
     def draw_grid(self, grid, offset_x, offset_y, hide_ships=False):
         for y in range(10):
             for x in range(10):
+                mark_text = SMALL_FONT.render(chr(x + ord('A')), True, BLACK)
+                self.screen.blit(mark_text, (offset_x + x * CELL_SIZE + CELL_SIZE // 2 - mark_text.get_width() // 2,
+                                             offset_y - mark_text.get_height() - 5 + CELL_SIZE * 11))
+
                 rect = pygame.Rect(offset_x + x * CELL_SIZE, offset_y + y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
-                if grid[y][x] == 1 and not hide_ships:
-                    pygame.draw.rect(self.screen, BLUE, rect)
-                elif grid[y][x] == 2:
-                    pygame.draw.rect(self.screen, RED, rect)
-                elif grid[y][x] == 3:
-                    pygame.draw.rect(self.screen, GRAY, rect)
+
+                if hide_ships:
+                    if grid[y][x] == 2:
+                        pygame.draw.rect(self.screen, RED, rect)
+                    elif grid[y][x] == 3:
+                        pygame.draw.rect(self.screen, GRAY, rect)
+                else:
+                    if grid[y][x] == len(self.ships) + self.index_defeat + 1:
+                        pygame.draw.rect(self.screen, GRAY, rect)
+                    elif grid[y][x] != 0:
+                        self.draw_ship(grid, x, y, offset_x + x * CELL_SIZE, offset_y + y * CELL_SIZE)
+
                 pygame.draw.rect(self.screen, BLACK, rect, 1)
+
+            mark_text = SMALL_FONT.render(str(y + 1), True, BLACK)
+            self.screen.blit(mark_text, (offset_x - mark_text.get_width() - 5,
+                                         offset_y + y * CELL_SIZE + CELL_SIZE // 2 - mark_text.get_height() // 2))
+
+    def draw_ship(self, grid, x, y, offset_x, offset_y):
+        value = grid[y][x]
+        index1 = abs(value) % self.index_defeat
+
+        image = pygame.image.load(self.ships[index1])
+        image = pygame.transform.scale(image, (CELL_SIZE, CELL_SIZE))
+
+        if value < 0:
+            image = pygame.transform.rotate(image, 90)
+
+        self.screen.blit(image, (offset_x, offset_y))
+
+        if abs(value) >= self.index_defeat:
+            image = pygame.image.load(self.fire[0])
+            image = pygame.transform.scale(image, (CELL_SIZE, CELL_SIZE))
+
+        self.screen.blit(image, (offset_x, offset_y))
 
     def send_data(self, data):
         try:
@@ -726,9 +797,7 @@ class BattleshipGame:
             self.running = False
 
     def receive_data(self):
-        while self.running and self.connected:
-            if self.game_over:
-                break
+        while self.running and self.connected and not self.game_over:
             try:
                 data = self.conn.recv(4096)
                 if not data:
@@ -755,16 +824,17 @@ class BattleshipGame:
     def handle_network_data(self, data):
         if data[0] == 'move':
             x, y = data[1], data[2]
+
             # Проверяем попадание по нашим кораблям
-            if self.own_grid[y][x] == 1:
-                self.own_grid[y][x] = 2  # Попадание
+            if self.own_grid[y][x] != 0:
+                self.own_grid[y][x] += self.index_defeat if self.own_grid[y][x] > 0 else -self.index_defeat  # Попадание
                 self.send_data(('hit', x, y))
 
                 # Check if a ship is destroyed on your grid
                 destroyed_ship = self.check_ship_destroyed(self.own_grid, x, y)
                 if destroyed_ship:
                     # Immediately mark adjacent cells and send the destroy message
-                    self.mark_adjacent_cells(destroyed_ship, self.own_grid)
+                    self.mark_adjacent_cells(destroyed_ship, self.own_grid, True)
                     self.send_data(('destroyed', destroyed_ship))  # Notify opponent
 
                     # Show the destruction effect on your own grid
@@ -774,7 +844,7 @@ class BattleshipGame:
                     self.game_over = True
                     self.send_data(('defeat',))
             else:
-                self.own_grid[y][x] = 3  # Мимо
+                self.own_grid[y][x] = len(self.ships) + self.index_defeat + 1  # Мимо
                 self.send_data(('miss', x, y))
                 self.turn = True  # Switch turn to the opponent
 
@@ -811,6 +881,7 @@ class BattleshipGame:
 
         elif data[0] == 'ready':
             self.enemy_ready = True
+            print(self.ready, self.enemy_ready)
             # Проверяем, готовы ли оба игрока
             if self.ready and self.enemy_ready:
                 self.both_ready = True
@@ -820,8 +891,9 @@ class BattleshipGame:
 
     def check_defeat(self):
         for row in self.own_grid:
-            if 1 in row:
-                return False
+            for col in row:
+                if col != 0 and col < self.index_defeat:
+                    return False
         return True
 
     def show_game_over(self):
