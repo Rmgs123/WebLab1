@@ -62,7 +62,7 @@ class BattleshipGame:
                             [3],
                             [4]]
 
-        self.index_defeat = 100  # Значение, превышение которого означает поподание по кораблю
+        self.index_defeat = 100  # Значение, превышение которого означает попадание по кораблю
         self.all_ships_placed = False  # Добавлено в __init__
         self.ships_to_place = [4, 3, 2, 1,]  # Размеры кораблей для размещения; default - [4, 3, 3, 2, 2, 2, 1, 1, 1, 1] - Вернуть!!
         self.placed_ships = []  # Список размещенных кораблей
@@ -283,19 +283,21 @@ class BattleshipGame:
             return
 
         # Establish connection to selected game
-        self.conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            self.conn.connect((selected_game['ip'], TCP_PORT))
-            self.connected = True
-            # Send player name
-            self.conn.sendall(self.player_name.encode())
-            # Receive opponent's name
-            data = self.conn.recv(1024)
-            self.enemy_name = data.decode()
-            print(f"Connected to player {self.enemy_name}")
-        except Exception as e:
-            print(f"Failed to connect to the game: {e}")
-            self.show_message('Не удалось подключиться к игре.')
+        # удалил и добавил
+        retries = 3
+        while retries > 0 and not self.connected:
+            try:
+                self.conn.connect((selected_game['ip'], TCP_PORT))
+                self.connected = True
+                self.conn.sendall(self.player_name.encode())
+                data = self.conn.recv(1024)
+                self.enemy_name = data.decode()
+                print(f"Подключен к игроку {self.enemy_name}")
+            except Exception as e:
+                retries -= 1
+                print(f"Ошибка подключения, осталось попыток: {retries}")
+                time.sleep(2)  # Задержка перед повторной попыткой
+        # удалил и добавил
 
     def scan_for_games(self):
         udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -652,12 +654,14 @@ class BattleshipGame:
                             print(1)
                             grid[adj_y][adj_x] = len(self.ships) + self.index_defeat + 1
 
-    def check_ship_destroyed(self, grid, x, y):
+    def check_ship_destroyed(self, grid, x, y, flag_own=False):
         # Find the ship associated with the hit cell
         for ship in self.placed_ships:
             if (x, y) in ship['positions']:
                 # Check if all positions of the ship have been hit
-                if all(grid[pos_y][pos_x] == 2 for (pos_x, pos_y) in ship['positions']):
+                if all(grid[pos_y][pos_x] == 2 for (pos_x, pos_y) in ship['positions']) and not flag_own:
+                    return ship['positions']
+                elif all(abs(grid[pos_y][pos_x]) > self.index_defeat for (pos_x, pos_y) in ship['positions']):
                     return ship['positions']
         return None
 
@@ -689,6 +693,13 @@ class BattleshipGame:
 
         while self.running:
             self.clock.tick(60)
+            # добавил
+            if not self.connected:
+                self.game_over = True
+                self.show_message('Противник отключился. Игра завершена.')
+                pygame.quit()
+                sys.exit()
+            # добавил
             if self.game_over:
                 break
             self.handle_events()
@@ -800,7 +811,12 @@ class BattleshipGame:
             try:
                 data = self.conn.recv(4096)
                 if not data:
-                    break  # Break the loop if connection is closed
+                    # добавил
+                    print("Соединение разорвано")
+                    self.connected = False
+                    self.running = False
+                    return
+                    # добавил
                 packet = pickle.loads(data)
                 self.handle_network_data(packet)
             except socket.error as e:
@@ -830,7 +846,7 @@ class BattleshipGame:
                 self.send_data(('hit', x, y))
 
                 # Check if a ship is destroyed on your grid
-                destroyed_ship = self.check_ship_destroyed(self.own_grid, x, y)
+                destroyed_ship = self.check_ship_destroyed(self.own_grid, x, y, True)
                 if destroyed_ship:
                     # Immediately mark adjacent cells and send the destroy message
                     self.mark_adjacent_cells(destroyed_ship, self.own_grid, True)
@@ -891,7 +907,7 @@ class BattleshipGame:
     def check_defeat(self):
         for row in self.own_grid:
             for col in row:
-                if col != 0 and col < self.index_defeat:
+                if col != 0 and abs(col) < self.index_defeat:
                     return False
         return True
 
@@ -950,7 +966,7 @@ class BattleshipGame:
         pygame.display.flip()
         pygame.time.delay(4000)
         
-"""
+        """
 
     def reset_game(self, disconnect=True):
         # Reset player states
