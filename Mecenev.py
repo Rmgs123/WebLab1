@@ -283,6 +283,7 @@ class BattleshipGame:
             return
 
         # Establish connection to selected game
+        self.conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         # удалил и добавил
         retries = 3
         while retries > 0 and not self.connected:
