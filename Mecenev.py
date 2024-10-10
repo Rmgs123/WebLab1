@@ -6,20 +6,40 @@ import socket
 import pickle
 import time
 
-import sys
 import os
+import sys
 
 def resource_path(relative_path):
-    """ Get absolute path to resource, works for PyInstaller """
+    """ Get absolute path to resource, works for PyInstaller and regular execution """
     try:
+        # PyInstaller stores files in a temporary folder during runtime
         base_path = sys._MEIPASS
     except AttributeError:
+        # If not running via PyInstaller, use the current directory
         base_path = os.path.abspath(".")
 
     return os.path.join(base_path, relative_path)
 
+def draw_text_with_outline(text, font, color, outline_color, position, screen):
+    """Function to contrast the text"""
+    x, y = position
+
+    outline_text = font.render(text, True, outline_color)
+
+    screen.blit(outline_text, (x - 1, y - 1))
+    screen.blit(outline_text, (x + 1, y - 1))
+    screen.blit(outline_text, (x - 1, y + 1))
+    screen.blit(outline_text, (x + 1, y + 1))
+
+    text_surface = font.render(text, True, color)
+    screen.blit(text_surface, (x, y))
+
 # Initializing Pygame
 pygame.init()
+
+# Load and set the window icon
+icon = pygame.image.load(resource_path('assets/fire.png'))
+pygame.display.set_icon(icon)
 
 # Constants
 WIDTH, HEIGHT = 900, 600
@@ -49,8 +69,21 @@ BROADCAST_IP = '255.255.255.255'
 class BattleshipGame:
     def __init__(self):
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
-        pygame.display.set_caption("Battleship")
+        pygame.display.set_caption("Battleship Game")
         self.clock = pygame.time.Clock()
+
+        # Load shot sound
+        self.shot_sound = pygame.mixer.Sound(resource_path('assets/shot.mp3'))
+
+        # Load backgrounds
+        self.main_background_image = pygame.transform.scale(pygame.image.load(resource_path('assets/main_background.png')),
+                                                           (WIDTH, HEIGHT))
+        self.main_menu_background = pygame.transform.scale(pygame.image.load(resource_path('assets/background1.png')),
+                                                           (WIDTH, HEIGHT))
+        self.army_background = pygame.transform.scale(pygame.image.load(resource_path('assets/army_background.png')),
+                                                      (WIDTH, HEIGHT))
+        self.battle_background = pygame.transform.scale(pygame.image.load(resource_path('assets/background2.png')),
+                                                        (WIDTH, HEIGHT))
 
         # Player variables
         self.player_name = ''
@@ -62,14 +95,14 @@ class BattleshipGame:
         # Player's fields
         self.own_grid = [[0] * 10 for _ in range(10)]  # Your field
         self.enemy_grid = [[0] * 10 for _ in range(10)]  # Enemy's field (known information)
-        self.fire = ['fire.png']
+        self.fire = ['assets/fire.png']
 
         # Player's ships
         self.ships = ['Pi',
-                      'solo.png',  # Single ship textures
-                      'front.png',  # Front of ship textures
-                      'middle.png',  # Middle of ship textures
-                      'back.png']  # Back of ship textures
+                      'assets/solo.png',  # Single ship textures
+                      'assets/front.png',  # Front of ship textures
+                      'assets/middle.png',  # Middle of ship textures
+                      'assets/back.png']  # Back of ship textures
         self.index_ships = [[1],
                             [2],
                             [3],
@@ -141,18 +174,23 @@ class BattleshipGame:
         input_active = True
         max_length = 16  # Maximum name length
 
+        # Resizing it
+        main_background_image = pygame.transform.scale(self.main_background_image, (WIDTH, HEIGHT))
+
         while input_active:
             self.clock.tick(60)
-            self.screen.fill(WHITE)
-            prompt = FONT.render('Enter your name and press Enter:', True, BLACK)
-            name_text = FONT.render(name, True, BLACK)
 
-            self.screen.blit(prompt, (WIDTH // 2 - prompt.get_width() // 2, HEIGHT // 2 - 50))
-            self.screen.blit(name_text, (WIDTH // 2 - name_text.get_width() // 2, HEIGHT // 2))
+            # Drawing background image
+            self.screen.blit(main_background_image, (0, 0))
 
-            name_game = BIG_FONT.render('Battleship Game', True, BLACK)
+            # Draw the prompt with outline
+            draw_text_with_outline('Enter your name and press Enter:', FONT, BLACK, WHITE, (WIDTH // 2 - 185, HEIGHT // 2 - 50), self.screen)
 
-            self.screen.blit(name_game, (WIDTH // 2 - name_game.get_width() // 2, 50))
+            # Center the player's input name
+            name_text_surface = FONT.render(name, True, BLACK)
+            name_x = WIDTH // 2 - name_text_surface.get_width() // 2
+            draw_text_with_outline(name, FONT, BLACK, WHITE, (name_x, HEIGHT // 2), self.screen)
+
             pygame.display.flip()
 
             for event in pygame.event.get():
@@ -199,8 +237,12 @@ class BattleshipGame:
         return role
 
     def draw_menu(self, host_button, client_button, return_button):
-        self.screen.fill(WHITE)
-        prompt = FONT.render('Choose game mode:', True, BLACK)
+        # Draw the background image
+        self.screen.blit(self.main_menu_background, (0, 0))
+
+        prompt = FONT.render('Choose game mode:', True, BLACK) # Just for .get_width()
+        draw_text_with_outline('Choose game mode:', FONT, BLACK, WHITE,
+                               (WIDTH // 2 - prompt.get_width() // 2, HEIGHT // 2 - 100), self.screen)
 
         pygame.draw.rect(self.screen, BLUE, host_button)
         pygame.draw.rect(self.screen, GREEN, client_button)
@@ -210,7 +252,6 @@ class BattleshipGame:
         client_text = FONT.render('Join game', True, WHITE)
         return_text = FONT.render('Back', True, WHITE)
 
-        self.screen.blit(prompt, (WIDTH // 2 - prompt.get_width() // 2, HEIGHT // 2 - 100))
         self.screen.blit(host_text, (host_button.centerx - host_text.get_width() // 2,
                                      host_button.centery - host_text.get_height() // 2))
         self.screen.blit(client_text, (client_button.centerx - client_text.get_width() // 2,
@@ -260,9 +301,12 @@ class BattleshipGame:
 
             self.clock.tick(60)
 
-            self.screen.fill(WHITE)
+            # Draw the background image
+            self.screen.blit(self.main_menu_background, (0, 0))
+
             prompt = FONT.render('Waiting for player to connect...', True, BLACK)
-            self.screen.blit(prompt, (WIDTH // 2 - prompt.get_width() // 2, HEIGHT // 2 - 40))
+            draw_text_with_outline('Waiting for player to connect...', FONT, BLACK, WHITE,
+                                   (WIDTH // 2 - prompt.get_width() // 2, HEIGHT // 2 - 40), self.screen)
 
             # Displaying "Back" button
             pygame.draw.rect(self.screen, GRAY, back_button)
@@ -374,9 +418,13 @@ class BattleshipGame:
 
         while selected is None and self.running:
             self.clock.tick(60)
-            self.screen.fill(WHITE)
+
+            # Draw the background image for selecting a game
+            self.screen.blit(self.main_menu_background, (0, 0))
+
             prompt = FONT.render('Select a game to join:', True, BLACK)
-            self.screen.blit(prompt, (WIDTH // 2 - prompt.get_width() // 2, 50))
+            draw_text_with_outline('Select a game to join:', FONT, BLACK, WHITE,
+                                   (WIDTH // 2 - prompt.get_width() // 2, 50), self.screen)
 
             # "Back" button
             pygame.draw.rect(self.screen, GRAY, back_button)
@@ -450,6 +498,9 @@ class BattleshipGame:
             grid_x = (mouse_pos[0] - MARGIN) // CELL_SIZE
             grid_y = (mouse_pos[1] - MARGIN) // CELL_SIZE
 
+            # Draw the background image for placing ships
+            self.screen.blit(self.army_background, (0, 0))
+
             self.draw_place_ships(selected_ship, ready_button, grid_x, grid_y)
 
             ship_under_cursor = None
@@ -512,36 +563,35 @@ class BattleshipGame:
             self.menu_phase = True
 
     def draw_place_ships(self, selected_ship, ready_button, grid_x, grid_y):
-        self.screen.fill(WHITE)
         self.draw_grid(self.own_grid, MARGIN, MARGIN)
         self.draw_ship_selection()
 
-        prompt = FONT.render('Place your ships', True, BLACK)
+        prompt = FONT.render('Place your ships:', True, WHITE)
         self.screen.blit(prompt, (WIDTH // 2 - 400, 10))
 
-        prompt = FONT.render('Ship list:', True, BLACK)
+        prompt = FONT.render('Ship list:', True, WHITE)
         self.screen.blit(prompt, (WIDTH // 2 + 110, 10))
 
         # Adding instructions for ship deletion
-        instruction_text1 = SMALL_FONT.render('Hints:', True, BLACK)
+        instruction_text1 = SMALL_FONT.render('Hints:', True, WHITE)
         self.screen.blit(instruction_text1, (MARGIN, HEIGHT - 200))
 
-        instruction_text2 = SMALL_FONT.render('1) To rotate a ship - press R', True, BLACK)
+        instruction_text2 = SMALL_FONT.render('1) To rotate a ship - press R', True, WHITE)
         self.screen.blit(instruction_text2, (MARGIN, HEIGHT - 175))
 
-        instruction_text3 = SMALL_FONT.render('2) To delete a ship - hover over it and press Delete', True, BLACK)
+        instruction_text3 = SMALL_FONT.render('2) To delete a ship - hover over it and press Delete', True, WHITE)
         self.screen.blit(instruction_text3, (MARGIN, HEIGHT - 150))
 
         instruction_text4 = SMALL_FONT.render(
-            '3) After clicking "Ready", you will not be able to change ship placement ', True, BLACK)
+            '3) After clicking "Ready", you will not be able to change ship placement ', True, WHITE)
         self.screen.blit(instruction_text4, (MARGIN, HEIGHT - 125))
 
         name_player = SMALL_FONT.render(
-            f'Your name: {self.player_name}', True, BLACK)
+            f'Your name: {self.player_name}', True, WHITE)
         self.screen.blit(name_player, (MARGIN, HEIGHT - 75))
 
         enemy_player = SMALL_FONT.render(
-            f'Enemy name: {self.enemy_name}', True, BLACK)
+            f'Enemy name: {self.enemy_name}', True, WHITE)
         self.screen.blit(enemy_player, (MARGIN, HEIGHT - 50))
 
         # "Ready" button - moved out to avoid bug
@@ -561,8 +611,9 @@ class BattleshipGame:
 
         # If we clicked "Ready" and are waiting for the enemy, show message
         if self.ready and not self.both_ready:
-            waiting_text = FONT.render('Waiting for the enemy to be ready...', True, BLACK)
-            self.screen.blit(waiting_text, (WIDTH // 2 + 5, HEIGHT // 2 - 120))
+            waiting_text = FONT.render('Waiting for the enemy to be ready...', True, BLACK) # Let it stay
+            draw_text_with_outline('Waiting for the enemy to be ready...', FONT, BLACK, WHITE,
+                                   (WIDTH // 2 + 5, HEIGHT // 2 - 120), self.screen)
 
         pygame.display.flip()
 
@@ -764,14 +815,16 @@ class BattleshipGame:
         if self.effect_playing:
             return  # Skip drawing if an effect is being played
 
-        self.screen.fill(WHITE)
+        # Draw the battle background image
+        self.screen.blit(self.battle_background, (0, 0))
+
         # Draw own ships
         self.draw_grid(self.own_grid, MARGIN, MARGIN)
         # Draw enemy field
         self.draw_grid(self.enemy_grid, MARGIN + 350, MARGIN, hide_ships=True)
         # Display player names
-        own_name_text = FONT.render(f"You: {self.player_name}", True, BLACK)
-        enemy_name_text = FONT.render(f"Enemy: {self.enemy_name}", True, BLACK)
+        own_name_text = FONT.render(f"You: {self.player_name}", True, WHITE)
+        enemy_name_text = FONT.render(f"Enemy: {self.enemy_name}", True, WHITE)
         self.screen.blit(own_name_text, (MARGIN, MARGIN - 30))
         self.screen.blit(enemy_name_text, (MARGIN + 350, MARGIN - 30))
         # Display turn information
@@ -784,7 +837,8 @@ class BattleshipGame:
             text = "..."
 
         turn_text = FONT.render(text, True, BLACK)
-        self.screen.blit(turn_text, (WIDTH // 2 - turn_text.get_width() // 2, HEIGHT - 40))
+        draw_text_with_outline(text, FONT, BLACK, WHITE,
+                               (WIDTH // 2 - turn_text.get_width() // 2, HEIGHT - 40), self.screen)
         pygame.display.flip()
 
     def draw_grid(self, grid, offset_x, offset_y, hide_ships=False):
@@ -793,9 +847,10 @@ class BattleshipGame:
 
         for y in range(10):
             for x in range(10):
-                mark_text = SMALL_FONT.render(chr(x + ord('A')), True, BLACK)
-                self.screen.blit(mark_text, (offset_x + x * CELL_SIZE + CELL_SIZE // 2 - mark_text.get_width() // 2,
-                                             offset_y - mark_text.get_height() - 5 + CELL_SIZE * 11))
+                mark_text = SMALL_FONT.render(chr(x + ord('A')), True, WHITE) # Just for the .get_width()
+                draw_text_with_outline((chr(x + ord('A'))), FONT, BLACK, WHITE,
+                                       (offset_x + x * CELL_SIZE + CELL_SIZE // 2 - mark_text.get_width() // 2,
+                                        offset_y - mark_text.get_height() - 5 + CELL_SIZE * 11), self.screen)
 
                 rect = pygame.Rect(offset_x + x * CELL_SIZE, offset_y + y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
 
@@ -812,9 +867,10 @@ class BattleshipGame:
 
                 pygame.draw.rect(self.screen, BLACK, rect, 1)
 
-            mark_text = SMALL_FONT.render(str(y + 1), True, BLACK)
-            self.screen.blit(mark_text, (offset_x - mark_text.get_width() - 5,
-                                         offset_y + y * CELL_SIZE + CELL_SIZE // 2 - mark_text.get_height() // 2))
+            mark_text = SMALL_FONT.render(str(y + 1), True, WHITE)
+            draw_text_with_outline((str(y + 1)), FONT, BLACK, WHITE,
+                                   (offset_x - mark_text.get_width() - 5,
+                                    offset_y + y * CELL_SIZE + CELL_SIZE // 2 - mark_text.get_height() // 2), self.screen)
 
     def draw_ship(self, grid, x, y, offset_x, offset_y):
         value = grid[y][x]
@@ -873,6 +929,9 @@ class BattleshipGame:
                 self.own_grid[y][x] += self.index_defeat if self.own_grid[y][x] > 0 else -self.index_defeat  # Hit
                 self.send_data(('hit', x, y))
 
+                # Play the shot sound when opponent hits our ship
+                self.shot_sound.play()
+
                 # Check if a ship is destroyed on your grid
                 destroyed_ship = self.check_ship_destroyed(self.own_grid, x, y)
                 if destroyed_ship:
@@ -891,11 +950,15 @@ class BattleshipGame:
             else:
                 self.own_grid[y][x] = len(self.ships) + self.index_defeat + 1  # Miss
                 self.send_data(('miss', x, y))
+                # Play the shot sound
+                self.shot_sound.play()
                 self.turn = True  # Switch turn to the opponent
 
         elif data[0] == 'hit':
             x, y = data[1], data[2]
             self.enemy_grid[y][x] = 2  # Mark hit
+            # Play the shot sound when hit is shown
+            self.shot_sound.play()
             self.turn = True
 
         elif data[0] == 'destroyed':
@@ -908,6 +971,7 @@ class BattleshipGame:
         elif data[0] == 'miss':
             x, y = data[1], data[2]
             self.enemy_grid[y][x] = 3  # Mark miss
+            self.shot_sound.play()  # Play the shot sound when miss is shown
             self.turn = False  # Switch turn to the opponent
 
         elif data[0] == 'defeat':
@@ -943,7 +1007,7 @@ class BattleshipGame:
         else:
             text = "You won!"
 
-        game_over_text = FONT.render(text, True, BLACK)
+        game_over_text = FONT.render(text, True, BLACK) # Again, Just for .get_width()
         continue_button = pygame.Rect(WIDTH // 2 - 100, HEIGHT // 2 - 40, 200, 50)
         return_button = pygame.Rect(WIDTH // 2 - 100, HEIGHT // 2 + 20, 200, 50)
 
@@ -951,6 +1015,8 @@ class BattleshipGame:
         return_text = FONT.render('Return to menu', True, WHITE)
 
         while end_game_flag and self.game_over:
+            # Draw the background image for the game over screen
+            self.screen.blit(self.battle_background, (0, 0))
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self.running = False
@@ -965,9 +1031,8 @@ class BattleshipGame:
                     elif return_button.collidepoint(x, y):
                         end_game_flag = False
 
-            self.screen.fill(WHITE)
-
-            self.screen.blit(game_over_text, (WIDTH // 2 - game_over_text.get_width() // 2, HEIGHT // 4))
+            draw_text_with_outline(text, FONT, BLACK, WHITE,
+                                   (WIDTH // 2 - game_over_text.get_width() // 2, HEIGHT // 4), self.screen)
 
             pygame.draw.rect(self.screen, GREEN, continue_button)
             pygame.draw.rect(self.screen, RED, return_button)
