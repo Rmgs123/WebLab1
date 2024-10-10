@@ -6,6 +6,18 @@ import socket
 import pickle
 import time
 
+import sys
+import os
+
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for PyInstaller """
+    try:
+        base_path = sys._MEIPASS
+    except AttributeError:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
 # Initializing Pygame
 pygame.init()
 
@@ -65,7 +77,8 @@ class BattleshipGame:
 
         self.index_defeat = 100  # A value exceeding this indicates a hit on the ship
         self.all_ships_placed = False
-        self.ships_to_place = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]  # Ship sizes to place; default - [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]
+        self.ships_to_place = [4, 3, 3, 2, 2, 2, 1, 1, 1,
+                               1]  # Ship sizes to place; default - [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]
         self.placed_ships = []  # List of placed ships
         self.selected_ship_size = None  # Currently selected ship size for placement
         self.ship_orientation = 'horizontal'
@@ -328,7 +341,7 @@ class BattleshipGame:
         udp_socket.settimeout(2)
         udp_socket.bind(('', UDP_PORT))
 
-        game_timeout = 1  # Seconds until a game is considered unavailable
+        game_timeout = 2  # Seconds until a game is considered unavailable
         self.game_last_seen = {}  # Track last time each game was seen
 
         while self.scanning:
@@ -613,11 +626,11 @@ class BattleshipGame:
                     self.own_grid[y][x + i] = self.index_ships[1][random.randint(0, len(self.index_ships[1]) - 1)]
 
                     if size == 1:
-                        self.own_grid[y][x + i] = self.index_ships[0][random.randint(0, len(self.index_ships[1]) - 1)]
+                        self.own_grid[y][x + i] = self.index_ships[0][random.randint(0, len(self.index_ships[0]) - 1)]
                 elif i == size - 1:
-                    self.own_grid[y][x + i] = self.index_ships[3][random.randint(0, len(self.index_ships[1]) - 1)]
+                    self.own_grid[y][x + i] = self.index_ships[3][random.randint(0, len(self.index_ships[3]) - 1)]
                 else:
-                    self.own_grid[y][x + i] = self.index_ships[2][random.randint(0, len(self.index_ships[1]) - 1)]
+                    self.own_grid[y][x + i] = self.index_ships[2][random.randint(0, len(self.index_ships[2]) - 1)]
                 positions.append((x + i, y))
         else:
             for i in range(size):
@@ -625,11 +638,11 @@ class BattleshipGame:
                     self.own_grid[y + i][x] = self.index_ships[1][random.randint(0, len(self.index_ships[1]) - 1)]
 
                     if size == 1:
-                        self.own_grid[y + i][x] = self.index_ships[0][random.randint(0, len(self.index_ships[1]) - 1)]
+                        self.own_grid[y + i][x] = self.index_ships[0][random.randint(0, len(self.index_ships[0]) - 1)]
                 elif i == size - 1:
-                    self.own_grid[y + i][x] = self.index_ships[3][random.randint(0, len(self.index_ships[1]) - 1)]
+                    self.own_grid[y + i][x] = self.index_ships[3][random.randint(0, len(self.index_ships[3]) - 1)]
                 else:
-                    self.own_grid[y + i][x] = self.index_ships[2][random.randint(0, len(self.index_ships[1]) - 1)]
+                    self.own_grid[y + i][x] = self.index_ships[2][random.randint(0, len(self.index_ships[2]) - 1)]
 
                 self.own_grid[y + i][x] = -1 * self.own_grid[y + i][x]
                 positions.append((x, y + i))
@@ -805,9 +818,9 @@ class BattleshipGame:
 
     def draw_ship(self, grid, x, y, offset_x, offset_y):
         value = grid[y][x]
-        index1 = abs(value) % self.index_defeat
+        index1 = (abs(value) % self.index_defeat) % len(self.ships)
 
-        image = pygame.image.load(self.ships[index1])
+        image = pygame.image.load(resource_path(self.ships[index1]))
         image = pygame.transform.scale(image, (CELL_SIZE, CELL_SIZE))
 
         if value < 0:
@@ -816,7 +829,7 @@ class BattleshipGame:
         self.screen.blit(image, (offset_x, offset_y))
 
         if abs(value) >= self.index_defeat:
-            image = pygame.image.load(self.fire[0])
+            image = pygame.image.load(resource_path(self.fire[0]))
             image = pygame.transform.scale(image, (CELL_SIZE, CELL_SIZE))
 
         self.screen.blit(image, (offset_x, offset_y))
@@ -826,6 +839,7 @@ class BattleshipGame:
             self.conn.sendall(pickle.dumps(data))
         except Exception as e:
             pass
+
     def receive_data(self):
         while self.running and self.connected and not self.menu_phase:
             try:
@@ -971,7 +985,8 @@ class BattleshipGame:
         self.own_grid = [[0] * 10 for _ in range(10)]
         self.enemy_grid = [[0] * 10 for _ in range(10)]
         self.all_ships_placed = False
-        self.ships_to_place = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]  # Ship sizes to place; default - [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]
+        self.ships_to_place = [4, 3, 3, 2, 2, 2, 1, 1, 1,
+                               1]  # Ship sizes to place; default - [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]
         self.placed_ships = []
         self.selected_ship_size = None
         self.ship_orientation = 'horizontal'
